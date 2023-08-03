@@ -74,9 +74,11 @@ class AbstractUNet(nn.Module):
 
     def forward(self, x):
         # encoder part
+        # print(f"=====x.shape: {x.shape}")
         encoders_features = []
         for encoder in self.encoders:
             x = encoder(x)
+            # print(f"===== en x.shape: {x.shape}")
             # reverse the encoder outputs to be aligned with the decoder
             encoders_features.insert(0, x)
 
@@ -89,14 +91,14 @@ class AbstractUNet(nn.Module):
             # pass the output from the corresponding encoder and the output
             # of the previous decoder
             x = decoder(encoder_features, x)
-
+            # print(f"===== de x.shape: {x.shape}")
         x = self.final_conv(x)
+        # print(f"=====final x.shape: {x.shape}")
 
         # apply final_activation (i.e. Sigmoid or Softmax) only during prediction.
         # During training the network outputs logits
         if not self.training and self.final_activation is not None:
             x = self.final_activation(x)
-
         return x
 
 

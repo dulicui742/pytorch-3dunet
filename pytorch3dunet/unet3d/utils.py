@@ -24,10 +24,15 @@ def save_checkpoint(state, is_best, checkpoint_dir):
     if not os.path.exists(checkpoint_dir):
         os.mkdir(checkpoint_dir)
 
-    last_file_path = os.path.join(checkpoint_dir, 'last_checkpoint.pytorch')
+    # last_file_path = os.path.join(checkpoint_dir, 'last_checkpoint.pytorch')
+
+    num_epochs = state["num_epochs"]
+    best_eval_score = round(state["best_eval_score"], 4)
+    num_iterations = state["num_iterations"]
+    last_file_path = os.path.join(checkpoint_dir, f"epoch_{num_epochs}_niters_{num_iterations}_bes_{best_eval_score}.pth")
     torch.save(state, last_file_path)
     if is_best:
-        best_file_path = os.path.join(checkpoint_dir, 'best_checkpoint.pytorch')
+        best_file_path = os.path.join(checkpoint_dir, f'best_checkpoint.pytorch_epoch_{num_epochs}_niters_{num_iterations}_bes_{best_eval_score}')
         shutil.copyfile(last_file_path, best_file_path)
 
 

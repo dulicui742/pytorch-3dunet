@@ -35,6 +35,7 @@ def create_trainer(config):
     # Create evaluation metric
     eval_criterion = get_evaluation_metric(config)
 
+    # import pdb; pdb.set_trace()
     # Create data loaders
     loaders = get_train_loaders(config)
 
@@ -165,6 +166,7 @@ class UNetTrainer:
         # sets the model in training mode
         self.model.train()
 
+        # import pdb; pdb.set_trace()
         for t in self.loaders['train']:
             logger.info(f'Training iteration [{self.num_iterations}/{self.max_num_iterations}]. '
                         f'Epoch [{self.num_epochs}/{self.max_num_epochs - 1}]')
@@ -246,7 +248,7 @@ class UNetTrainer:
 
         with torch.no_grad():
             for i, t in enumerate(self.loaders['val']):
-                logger.info(f'Validation iteration {i}')
+                # logger.info(f'Validation iteration {i}')
 
                 input, target, weight = self._split_training_batch(t)
 
@@ -270,7 +272,8 @@ class UNetTrainer:
     def _split_training_batch(self, t):
         def _move_to_gpu(input):
             if isinstance(input, tuple) or isinstance(input, list):
-                return tuple([_move_to_gpu(x) for x in input])
+                # return tuple([_move_to_gpu(x) for x in input])
+                return tuple([_move_to_gpu(x.float()) for x in input])
             else:
                 if torch.cuda.is_available():
                     input = input.cuda(non_blocking=True)

@@ -136,6 +136,7 @@ class AbstractHDF5Dataset(ConfigDataset):
         file_paths = cls.traverse_h5_paths(file_paths)
 
         datasets = []
+        samples_num = 0
         for file_path in file_paths:
             try:
                 logger.info(f'Loading {phase} set from: {file_path}...')
@@ -148,8 +149,10 @@ class AbstractHDF5Dataset(ConfigDataset):
                               weight_internal_path=dataset_config.get('weight_internal_path', None),
                               global_normalization=dataset_config.get('global_normalization', None))
                 datasets.append(dataset)
+                samples_num += dataset.patch_count
             except Exception:
                 logger.error(f'Skipping {phase} set: {file_path}', exc_info=True)
+        logger.info(f"\n================{phase}: {samples_num}===============\n")
         return datasets
 
     @staticmethod
