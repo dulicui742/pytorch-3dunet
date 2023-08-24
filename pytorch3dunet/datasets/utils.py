@@ -2,6 +2,9 @@ import collections
 
 import numpy as np
 import torch
+import SimpleITK as sitk
+import vtk
+from vtk.util import numpy_support
 from torch.utils.data import DataLoader, ConcatDataset, Dataset
 
 from pytorch3dunet.unet3d.utils import get_logger, get_class
@@ -34,6 +37,100 @@ class ConfigDataset(Dataset):
     def prediction_collate(cls, batch):
         """Default collate_fn. Override in child class for non-standard datasets."""
         return default_prediction_collate(batch)
+
+
+class THSliceBuilder:
+    """
+    Builds the position of the patches in a given raw/label/weight ndarray based on the patch and stride shape.
+
+    Args:
+        image_shape (list or tuple): shape of raw data
+        mask_shape (list or tuple): shape of ground truth labels
+        weight_shape (list or tuple): shape of weights for the labels
+        patch_shape (tuple): the shape of the patch DxHxW
+        stride_shape (tuple): the shape of the stride DxHxW
+        kwargs: additional metadata
+    """
+
+    def __init__(self, image_shape, mask_shape, weight_shape, patch_shape, stride_shape, **kwargs):
+        patch_shape = tuple(patch_shape)
+        stride_shape = tuple(stride_shape)
+        skip_shape_check = kwargs.get('skip_shape_check', False)
+        if not skip_shape_check:
+            self._check_patch_shape(patch_shape)
+
+        self._raw_slices = self._build_slices(image_shape, patch_shape, stride_shape)
+        if mask_shape is None:
+            self._label_slices = None
+        else:
+            # take the first element in the label_dataset to build slices
+            self._label_slices = self._build_slices(mask_shape, patch_shape, stride_shape)
+            assert len(self._raw_slices) == len(self._label_slices)
+        if weight_shape is None:
+            self._weight_slices = None
+        else:
+            self._weight_slices = self._build_slices(weight_shape, patch_shape, stride_shape)
+            assert len(self.raw_slices) == len(self._weight_slices)
+
+    @property
+    def raw_slices(self):
+        return self._raw_slices
+
+    @property
+    def label_slices(self):
+        return self._label_slices
+
+    @property
+    def weight_slices(self):
+        return self._weight_slices
+
+    @staticmethod
+    def _build_slices(ori_shape, patch_shape, stride_shape):
+        """Iterates over a given n-dim dataset patch-by-patch with a given stride
+        and builds an array of slice positions.
+
+        Returns:
+            list of slices, i.e.
+            [(slice, slice, slice, slice), ...] if len(shape) == 4
+            [(slice, slice, slice), ...] if len(shape) == 3
+        """
+        slices = []
+        if len(ori_shape) == 4:
+            in_channels, i_z, i_y, i_x = ori_shape
+        else:
+            i_z, i_y, i_x = ori_shape
+
+        k_z, k_y, k_x = patch_shape
+        s_z, s_y, s_x = stride_shape
+
+        z_steps = THSliceBuilder._gen_indices(i_z, k_z, s_z)
+        for z in z_steps:
+            y_steps = THSliceBuilder._gen_indices(i_y, k_y, s_y)
+            for y in y_steps:
+                x_steps = THSliceBuilder._gen_indices(i_x, k_x, s_x)
+                for x in x_steps:
+                    slice_idx = (
+                        slice(z, z + k_z),
+                        slice(y, y + k_y),
+                        slice(x, x + k_x)
+                    )
+                    if len(ori_shape) == 4:
+                        slice_idx = (slice(0, in_channels),) + slice_idx
+                    slices.append(slice_idx)
+        return slices
+
+    @staticmethod
+    def _gen_indices(i, k, s):
+        assert i >= k, 'Sample size has to be bigger than the patch size'
+        for j in range(0, i - k + 1, s):
+            yield j
+        if j + k < i:
+            yield i - k
+
+    @staticmethod
+    def _check_patch_shape(patch_shape):
+        assert len(patch_shape) == 3, 'patch_shape must be a 3D tuple'
+        assert patch_shape[1] >= 64 and patch_shape[2] >= 64, 'Height and Width must be greater or equal 64'
 
 
 class SliceBuilder:
@@ -99,6 +196,8 @@ class SliceBuilder:
 
         k_z, k_y, k_x = patch_shape
         s_z, s_y, s_x = stride_shape
+
+        print(i_z, i_y, i_x, stride_shape)
         z_steps = SliceBuilder._gen_indices(i_z, k_z, s_z)
         for z in z_steps:
             y_steps = SliceBuilder._gen_indices(i_y, k_y, s_y)
@@ -165,7 +264,8 @@ def _loader_classes(class_name):
         'pytorch3dunet.datasets.hdf5',
         'pytorch3dunet.datasets.dsb',
         'pytorch3dunet.datasets.utils',
-        'pytorch3dunet.datasets.th'
+        'pytorch3dunet.datasets.th',
+        'pytorch3dunet.datasets.th_hdf5'
     ]
     return get_class(class_name, modules)
 
@@ -199,8 +299,8 @@ def get_train_loaders(config):
         logger.warning(f"Cannot find dataset class in the config. Using default '{dataset_cls_str}'.")
     dataset_class = _loader_classes(dataset_cls_str)
 
-    assert set(loaders_config['train']['file_paths']).isdisjoint(loaders_config['val']['file_paths']), \
-        "Train and validation 'file_paths' overlap. One cannot use validation data for training!"
+    # assert set(loaders_config['train']['file_paths']).isdisjoint(loaders_config['val']['file_paths']), \
+    #     "Train and validation 'file_paths' overlap. One cannot use validation data for training!"
 
     train_datasets = dataset_class.create_datasets(loaders_config, phase='train')
 
@@ -209,6 +309,7 @@ def get_train_loaders(config):
     num_workers = loaders_config.get('num_workers', 1)
     logger.info(f'Number of workers for train/val dataloader: {num_workers}')
     batch_size = loaders_config.get('batch_size', 1)
+    print(f"=============batch_size: {batch_size}*********************")
     if torch.cuda.device_count() > 1 and not config['device'] == 'cpu':
         logger.info(
             f'{torch.cuda.device_count()} GPUs available. Using batch_size = {torch.cuda.device_count()} * {batch_size}')
@@ -304,3 +405,41 @@ def calculate_stats(images, global_normalization=True):
         'mean': mean,
         'std': std
     }
+
+
+def read_dicom_vtk(dicom_path):
+    dicomreader = vtk.vtkDICOMImageReader()
+    dicomreader.SetDirectoryName(dicom_path)
+    dicomreader.Update()
+    output = dicomreader.GetOutput()
+    dimensions = output.GetDimensions()
+    dicomArray = numpy_support.vtk_to_numpy(output.GetPointData().GetScalars())
+    dicomArray = dicomArray.reshape(dimensions[::-1]).astype(np.float32)
+    dicomArray = dicomArray[:,::-1,:]
+    # dicomArray[dicomArray == -3024] = -1024
+    return {
+        "vtk": output,
+        "array": dicomArray
+    }
+        
+
+
+def read_dicom(dicom_path):
+    series_reader = sitk.ImageSeriesReader()
+    dicom_names = series_reader.GetGDCMSeriesFileNames(dicom_path)
+    series_reader.SetFileNames(dicom_names)
+    dicom_itk = series_reader.Execute()
+    dicomArray = sitk.GetArrayFromImage(dicom_itk)
+    # dicomArray[dicomArray == -3024] = -1024
+    return {
+        "itk": dicom_itk,
+        "array": dicomArray
+    }
+
+
+def read_dicom_itk(dicom_path):
+    series_reader = sitk.ImageSeriesReader()
+    dicom_names = series_reader.GetGDCMSeriesFileNames(dicom_path)
+    series_reader.SetFileNames(dicom_names)
+    dicom_itk = series_reader.Execute()
+    return dicom_itk

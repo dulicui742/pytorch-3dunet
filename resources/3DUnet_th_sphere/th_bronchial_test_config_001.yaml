@@ -1,0 +1,41 @@
+# Download test data from: https://osf.io/8jz7e/
+model_path: ./output/pth/Bronchial/0811_180000/epoch_16_niters_63000_bes_0.5366.pth  
+model:
+  name: UNet3D
+  # number of input channels to the model
+  in_channels: 1
+  # number of output channels
+  out_channels: 1
+  # determines the order of operators in a single layer (crg - Conv3d+ReLU+GroupNorm)
+  layer_order: gcr
+  # initial number of feature maps
+  f_maps: [32, 64, 128, 256]
+  # number of groups in the groupnorm
+  num_groups: 8
+  # apply element-wise nn.Sigmoid after the final 1x1x1 convolution, otherwise apply nn.Softmax
+  final_sigmoid: true
+predictor:
+  name: 'StandardPredictor'
+loaders:
+  # save predictions to output_dir
+  output_dir: ./output/res/h5/Bronchial/0811_180000/epoch_16_niters_63000_vtk
+  # batch dimension; if number of GPUs is N > 1, then a batch_size of N * batch_size will automatically be taken for DataParallel
+  batch_size: 1
+  # how many subprocesses to use for data loading
+  num_workers: 8
+  # test loaders configuration
+  test:
+    # file_paths: ["./data/test/"]
+    file_paths: ["/data/dulicui/project/data/data03_h5/test_vtk"]
+    ## ["/data/dulicui/project/data/data03_h5/test_debug_x/"]
+
+    slice_builder:
+      name: SliceBuilder
+      patch_shape: [32, 512, 512]
+      stride_shape: [16, 496, 496]
+
+    transformer:
+      raw:
+        - name: Standardize
+        - name: ToTensor
+          expand_dims: true

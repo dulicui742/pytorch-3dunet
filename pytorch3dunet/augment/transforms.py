@@ -520,6 +520,7 @@ class Standardize:
                 mean = np.mean(m)
                 std = np.std(m)
 
+        # print(f"====Standardize: mean-{mean}, std: {std},  channelwise: {self.channelwise}, {m.shape}")
         return (m - mean) / np.clip(std, a_min=self.eps, a_max=None)
 
 

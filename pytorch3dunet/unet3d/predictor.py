@@ -54,6 +54,117 @@ class _AbstractPredictor:
         raise NotImplementedError
 
 
+class THStandardPredictor(_AbstractPredictor):
+    """
+    Applies the model on the given dataset and saves the result as H5 file.
+    Predictions from the network are kept in memory. If the results from the network don't fit in into RAM
+    use `LazyPredictor` instead.
+
+    The output dataset names inside the H5 is given by `dest_dataset_name` config argument. If the argument is
+    not present in the config 'predictions' is used as a default dataset name.
+
+    Args:
+        model (Unet3D): trained 3D UNet model used for prediction
+        output_dir (str): path to the output directory (optional)
+        config (dict): global config dict
+    """
+
+    def __init__(self, model, output_dir, config, **kwargs):
+        super().__init__(model, output_dir, config, **kwargs)
+
+    def __call__(self, dicom_array, raw_transform, slices):
+        start = time.time()
+
+        prediction_channel = self.config.get('prediction_channel', None)
+        if prediction_channel is not None:
+            logger.info(f"Saving only channel '{prediction_channel}' from the network output")
+
+        logger.info(f'Running inference on {len(slices)} batches')
+
+        # dimensionality of the output predictions
+        volume_shape = dicom_array.shape 
+        out_channels = self.config['model'].get('out_channels')
+        if prediction_channel is None:
+            prediction_maps_shape = (out_channels,) + volume_shape
+        else:
+            # single channel prediction map
+            prediction_maps_shape = (1,) + volume_shape
+
+        logger.info(f'The shape of the output prediction maps (CDHW): {prediction_maps_shape}')
+
+        # evey patch will be mirror-padded with the following halo
+        patch_halo = self.predictor_config.get('patch_halo', (4, 4, 4))
+        if _is_2d_model(self.model):
+            patch_halo = list(patch_halo)
+            patch_halo[0] = 0
+
+        # allocate prediction and normalization arrays
+        # logger.info('Allocating prediction and normalization arrays...')
+        prediction_map, normalization_mask = self._allocate_prediction_maps(prediction_maps_shape)
+
+        # Sets the module in evaluation mode explicitly
+        # It is necessary for batchnorm/dropout layers if present as well as final Sigmoid/Softmax to be applied
+        self.model.eval()
+        # Run predictions on the entire input dataset
+        with torch.no_grad():
+            for indices in tqdm(slices):
+                input = raw_transform(dicom_array[indices])
+                input = input.unsqueeze(dim=0) ## Add batch size dim
+                # send batch to gpu
+                if torch.cuda.is_available():
+                    input = input.cuda(non_blocking=True)
+
+                input = _pad(input, patch_halo)
+
+                if _is_2d_model(self.model):
+                    # remove the singleton z-dimension from the input
+                    input = torch.squeeze(input, dim=-3)
+                    # forward pass
+                    prediction = self.model(input)
+                    # add the singleton z-dimension to the output
+                    prediction = torch.unsqueeze(prediction, dim=-3)
+                else:
+                    # forward pass
+                    prediction = self.model(input)
+                
+                # unpad
+                prediction = _unpad(prediction, patch_halo)
+                # convert to numpy array
+                prediction = prediction.cpu().numpy()
+                # for each batch sample
+                for pred, index in zip(prediction, [indices]):
+                    # save patch index: (C,D,H,W)
+                    if prediction_channel is None:
+                        channel_slice = slice(0, out_channels)
+                    else:
+                        # use only the specified channel
+                        channel_slice = slice(0, 1)
+                        pred = np.expand_dims(pred[prediction_channel], axis=0)
+
+                    # add channel dimension to the index
+                    index = (channel_slice,) + tuple(index)
+                    # accumulate probabilities into the output prediction array
+                    prediction_map[index] += pred
+                    # count voxel visits for normalization
+                    normalization_mask[index] += 1
+
+        logger.info(f'Finished inference in {time.time() - start:.2f} seconds')
+        prediction_map = prediction_map / normalization_mask
+        return prediction_map
+
+    def _allocate_prediction_maps(self, output_shape):
+        # initialize the output prediction arrays
+        prediction_map = np.zeros(output_shape, dtype='float32')
+        # initialize normalization mask in order to average out probabilities of overlapping patches
+        normalization_mask = np.zeros(output_shape, dtype='uint8')
+        return prediction_map, normalization_mask
+
+    def _save_results(self, prediction_map, normalization_mask, output_file, dataset):
+        dataset_name = _get_dataset_name(self.config)
+        prediction_map = prediction_map / normalization_mask
+        output_file.create_dataset(dataset_name, data=prediction_map, compression="gzip")
+
+
 class StandardPredictor(_AbstractPredictor):
     """
     Applies the model on the given dataset and saves the result as H5 file.
@@ -112,6 +223,7 @@ class StandardPredictor(_AbstractPredictor):
         self.model.eval()
         # Run predictions on the entire input dataset
         with torch.no_grad():
+            # import pdb; pdb.set_trace()
             for input, indices in tqdm(test_loader):
                 # send batch to gpu
                 if torch.cuda.is_available():
@@ -129,7 +241,7 @@ class StandardPredictor(_AbstractPredictor):
                 else:
                     # forward pass
                     prediction = self.model(input)
-
+                
                 # unpad
                 prediction = _unpad(prediction, patch_halo)
                 # convert to numpy array

@@ -135,7 +135,8 @@ class UNetTrainer:
             self.best_eval_score = state['best_eval_score']
             self.num_iterations = state['num_iterations']
             self.num_epochs = state['num_epochs']
-            self.checkpoint_dir = os.path.split(resume)[0]
+            # self.checkpoint_dir = os.path.split(resume)[0]
+            self.checkpoint_dir = checkpoint_dir ## dulicui
         elif pre_trained is not None:
             logger.info(f"Logging pre-trained model from '{pre_trained}'...")
             utils.load_checkpoint(pre_trained, self.model, None)
@@ -168,8 +169,8 @@ class UNetTrainer:
 
         # import pdb; pdb.set_trace()
         for t in self.loaders['train']:
-            logger.info(f'Training iteration [{self.num_iterations}/{self.max_num_iterations}]. '
-                        f'Epoch [{self.num_epochs}/{self.max_num_epochs - 1}]')
+            # logger.info(f'Training iteration [{self.num_iterations}/{self.max_num_iterations}]. '
+            #             f'Epoch [{self.num_epochs}/{self.max_num_epochs - 1}]')
 
             input, target, weight = self._split_training_batch(t)
 
@@ -210,8 +211,12 @@ class UNetTrainer:
                     train_eval_scores.update(eval_score.item(), self._batch_size(input))
 
                 # log stats, params and images
-                logger.info(
-                    f'Training stats. Loss: {train_losses.avg}. Evaluation score: {train_eval_scores.avg}')
+                # logger.info(
+                #     f'Training stats. Loss: {train_losses.avg}. Evaluation score: {train_eval_scores.avg}')
+
+                print(f"[{self.num_iterations}/{self.max_num_iterations}].[{self.num_epochs}/{self.max_num_epochs - 1}] \
+                      Loss: {train_losses.avg}. Evaluation score: {train_eval_scores.avg}")
+                
                 self._log_stats('train', train_losses.avg, train_eval_scores.avg)
                 # self._log_params()
                 self._log_images(input, target, output, 'train_')
