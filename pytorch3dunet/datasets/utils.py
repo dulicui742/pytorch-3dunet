@@ -100,8 +100,14 @@ class THSliceBuilder:
         else:
             i_z, i_y, i_x = ori_shape
 
+        print(i_z, i_y, i_x)
         k_z, k_y, k_x = patch_shape
         s_z, s_y, s_x = stride_shape
+
+        if k_z > i_z:
+            print(f"\n k_z changed: from {k_z}")
+            k_z = i_z
+            print(f"\n k_z changed: to {k_z}")
 
         z_steps = THSliceBuilder._gen_indices(i_z, k_z, s_z)
         for z in z_steps:
@@ -265,7 +271,9 @@ def _loader_classes(class_name):
         'pytorch3dunet.datasets.dsb',
         'pytorch3dunet.datasets.utils',
         'pytorch3dunet.datasets.th',
-        'pytorch3dunet.datasets.th_hdf5'
+        'pytorch3dunet.datasets.th_hdf5',
+        'pytorch3dunet.datasets.th_hdf51',
+        'pytorch3dunet.datasets.hdf51',
     ]
     return get_class(class_name, modules)
 

@@ -36,40 +36,46 @@ class AbstractHDF5Dataset(ConfigDataset):
 
     def __init__(
             self, 
-            # file_path, 
-            base_path,
+            file_path, 
+            # base_path,
             uid,
             phase,
             slice_builder_config, 
             transformer_config, 
             shapeInfos,
-            # raw_internal_path='raw',
-            # label_internal_path='label', 
-            # weight_internal_path=None, 
+            raw_internal_path='raw',
+            label_internal_path='label', 
+            weight_internal_path=None, 
             global_normalization=True,
-            classes="Sphere"
+            # classes="Sphere"
             
     ):
         assert phase in ['train', 'val', 'test']
 
         # import pdb; pdb.set_trace()
         self.phase = phase
-        self.classes = classes
-        # self.file_path = file_path
-        self.base_path = base_path
-        self.uid = uid
+        # self.classes = classes 
+        self.file_path = file_path
+        self.raw_internal_path = raw_internal_path
+        self.label_internal_path = label_internal_path
+        self.weight_internal_path = weight_internal_path
+
+        # self.min_value = transformer_config["raw"][0]["min_value"]
+        # self.max_value = transformer_config["raw"][0]["max_value"]
+        # self.base_path = base_path
+        # self.uid = uid
         image_shape = shapeInfos[uid]["image_shape"]
         weight_shape = None
 
-        # input_file = self.create_h5_file(file_path)
+        self.input_file = self.create_h5_file(file_path)
 
         # self.raw = self.load_dataset(input_file, raw_internal_path)
 
-        dicom_path = os.path.join(self.base_path, "dicom", self.uid)
-        self.image_itk = read_dicom_itk(dicom_path)
+        # dicom_path = os.path.join(self.base_path, "dicom", self.uid)
+        # self.image_itk = read_dicom_itk(dicom_path)
 
-        mask_path = os.path.join(self.base_path, "mask", self.classes, self.uid)
-        self.mask_itk = read_dicom_itk(mask_path)
+        # mask_path = os.path.join(self.base_path, "mask", self.classes, self.uid)
+        # self.mask_itk = read_dicom_itk(mask_path)
 
         tmp = np.array(np.zeros(image_shape))
         stats = calculate_stats(tmp, global_normalization)  ## 只是为了返回空的stats
@@ -137,11 +143,18 @@ class AbstractHDF5Dataset(ConfigDataset):
         # # print(f"\n\n dicom_path: {dicom_path}=====")
         # raw = read_dicom(dicom_path)["array"]
 
-        raw = sitk.GetArrayFromImage(self.image_itk)
+        # raw = sitk.GetArrayFromImage(self.image_itk)
+        # input_file = self.create_h5_file(self.file_path)
+        raw = self.load_dataset(self.input_file, self.raw_internal_path)
         # get the slice for a given index 'idx'
         raw_idx = self.raw_slices[idx]
         # get the raw data patch for a given slice
-        raw_patch_transformed = self.raw_transform(raw[raw_idx])
+        raw_slice = raw[raw_idx]
+
+        # raw_slice[raw_slice > self.max_value] = self.max_value
+        # raw_slice[raw_slice < self.min_value] = self.min_value
+
+        raw_patch_transformed = self.raw_transform(raw_slice)
 
         if self.phase == 'test':
             # discard the channel dimension in the slices: predictor requires only the spatial dimensions of the volume
@@ -153,7 +166,8 @@ class AbstractHDF5Dataset(ConfigDataset):
             # mask_path = os.path.join(self.base_path, "mask", self.classes, self.uid)
             # # print(f"\n\n mask_path: {mask_path}=====")
             # mask = read_dicom(mask_path)["array"]
-            mask = sitk.GetArrayFromImage(self.mask_itk)
+            # mask = sitk.GetArrayFromImage(self.mask_itk)
+            mask = self.load_dataset(self.input_file, self.label_internal_path)
             label_idx = self.label_slices[idx]
             label_patch_transformed = self.label_transform(mask[label_idx])
             # if self.weight_map is not None:
@@ -161,6 +175,8 @@ class AbstractHDF5Dataset(ConfigDataset):
             #     weight_patch_transformed = self.weight_transform(self.weight_map[weight_idx])
             #     return raw_patch_transformed, label_patch_transformed, weight_patch_transformed
             # return the transformed raw and label patches
+
+            # self.close_h5_file(self.input_file)
             return raw_patch_transformed, label_patch_transformed
 
     def __len__(self):
@@ -214,43 +230,55 @@ class AbstractHDF5Dataset(ConfigDataset):
         # load slice builder config
         slice_builder_config = phase_config['slice_builder']
         # load files to process
-        # file_paths = phase_config['file_paths']
-        base_path = phase_config["base_path"]
-        classes = phase_config["classes"]
+        file_paths = phase_config['file_paths']
+        # base_path = phase_config["base_path"]
+        # classes = phase_config["classes"]
         # file_paths may contain both files and directories; if the file_path is a directory all H5 files inside
         # are going to be included in the final file_paths
 
-        # file_paths = cls.traverse_h5_paths(file_paths)
+        file_paths = cls.traverse_h5_paths(file_paths)
         # file_paths = cls.traverse_dicom_paths(file_paths)
         # file_paths = os.listdir(base_path)
 
-        # import pdb; pdb.set_trace()
+        # # import pdb; pdb.set_trace()
         json_file = phase_config['json_path']
         shapeInfos = cls.load_json_file(json_file)
-        uids = list(shapeInfos.keys())
+        # uids = list(shapeInfos.keys())
 
-        ### ==============MEM is not enough==========
-        num_tmp = len(uids)
+        # ### ==============MEM is not enough==========
+        # num_tmp = len(uids)
+        # if phase == "train":
+        #     num = 300 #300 #int(num_tmp * 2/3)
+        # elif phase == "val":
+        #     num = 50 #50 #if int(num_tmp * 1/3) else int(num_tmp * 1/3)
+        # else:
+        #     num = len(uids)
+        # uids = random.sample(uids, num)
+        # ### ==============MEM is not enough==========
+
+         ### ==============MEM is not enough==========
+        num_tmp = len(file_paths)
         if phase == "train":
-            num = 300 #300 #int(num_tmp * 2/3)
+            num = 300 #int(num_tmp * 2/3)
         elif phase == "val":
-            num = 50 #50 #if int(num_tmp * 1/3) else int(num_tmp * 1/3)
+            num = 50 #if int(num_tmp * 1/3) else int(num_tmp * 1/3)
         else:
-            num = len(uids)
-        uids = random.sample(uids, num)
+            num = len(file_paths)
+        file_paths = random.sample(file_paths, num)
         ### ==============MEM is not enough==========
 
         datasets = []
         samples_num = 0
         # for file_path in file_paths:
-        # for cnt, file_path in enumerate(file_paths):
+        for cnt, file_path in enumerate(file_paths):
         # import pdb; pdb.set_trace()
-        for cnt, uid in enumerate(uids):
+        # for cnt, uid in enumerate(uids):
             try:
+                uid = file_path.split("/")[-1].split(".")[0]
                 logger.info(f'Loading sample-{cnt + 1} {phase} set from: {uid}...')
                 dataset = cls(
-                            #   file_path=file_path,
-                              base_path=base_path,
+                              file_path=file_path,
+                            #   base_path=base_path,
                               uid=uid,
                               phase=phase,
                             #   base_path,
@@ -258,12 +286,12 @@ class AbstractHDF5Dataset(ConfigDataset):
                             #   phase,
                               slice_builder_config=slice_builder_config,
                               transformer_config=transformer_config,
-                            #   raw_internal_path=dataset_config.get('raw_internal_path', 'raw'),
-                            #   label_internal_path=dataset_config.get('label_internal_path', 'label'),
-                            #   weight_internal_path=dataset_config.get('weight_internal_path', None),
+                              raw_internal_path=dataset_config.get('raw_internal_path', 'raw'),
+                              label_internal_path=dataset_config.get('label_internal_path', 'label'),
+                              weight_internal_path=dataset_config.get('weight_internal_path', None),
                               global_normalization=dataset_config.get('global_normalization', None),
                               shapeInfos=shapeInfos,
-                              classes=classes,
+                            #   classes=classes,
                 )
                 datasets.append(dataset)
                 samples_num += dataset.patch_count
@@ -287,7 +315,7 @@ class AbstractHDF5Dataset(ConfigDataset):
         return results
 
 
-class THStandardHDF5Dataset(AbstractHDF5Dataset):
+class THStandardHDF5Dataset1(AbstractHDF5Dataset):
     """
     Implementation of the HDF5 dataset which loads the data from the H5 files into the memory.
     Fast but might consume a lot of memory.
@@ -302,22 +330,24 @@ class THStandardHDF5Dataset(AbstractHDF5Dataset):
     #                      global_normalization=global_normalization)
     def __init__(
             self,
-            # file_path, 
-            base_path,
+            file_path, 
+            # base_path,
             uid,
             phase,
             slice_builder_config, 
             transformer_config, 
             shapeInfos,
-            # raw_internal_path='raw',
-            # label_internal_path='label', 
-            # weight_internal_path=None, 
+            raw_internal_path='raw',
+            label_internal_path='label', 
+            weight_internal_path=None, 
             global_normalization=True,
-            classes="Sphere"
+            # classes="Sphere"
     ):
-        super().__init__(base_path=base_path, uid=uid, phase=phase, slice_builder_config=slice_builder_config,
-                         transformer_config=transformer_config, shapeInfos=shapeInfos, 
-                         global_normalization=global_normalization, classes=classes)
+        super().__init__(file_path=file_path, uid=uid, phase=phase, slice_builder_config=slice_builder_config, 
+                         transformer_config=transformer_config, raw_internal_path=raw_internal_path,
+                         label_internal_path=label_internal_path, weight_internal_path=weight_internal_path,
+                         shapeInfos=shapeInfos, 
+                         global_normalization=global_normalization)
         
 
     @staticmethod

@@ -492,6 +492,10 @@ class LabelToMaskAndAffinities:
         return np.concatenate((mask, affinities), axis=0)
 
 
+# class NormalizeWithWWWl:
+#     def __init__(self, wl=, ww):
+
+
 class Standardize:
     """
     Apply Z-score normalization to a given input tensor, i.e. re-scaling the values to be 0-mean and 1-std.
@@ -504,6 +508,7 @@ class Standardize:
         self.std = std
         self.eps = eps
         self.channelwise = channelwise
+        self.tmp = []
 
     def __call__(self, m):
         if self.mean is not None:
@@ -520,7 +525,10 @@ class Standardize:
                 mean = np.mean(m)
                 std = np.std(m)
 
-        # print(f"====Standardize: mean-{mean}, std: {std},  channelwise: {self.channelwise}, {m.shape}")
+        # print(f"====Standardize: mean:{mean}, std: {std},  channelwise: {self.channelwise}, {m.shape}")
+        # aa = (m - mean) / np.clip(std, a_min=self.eps, a_max=None)
+        # print(f"====mean:{mean:.2f}, std: {std:.2f}, max-min: {np.max(m)} || {np.min(m)}, max-min1: {np.max(aa):.2f} || {np.min(aa):.2f}")
+        # self.tmp.append({"mean":{mean}, "std": {std}, "max1": {np.max(m)}, "max2": {np.max(aa)}, "min1":{np.min(m)}, "min2": {np.min(aa)}})
         return (m - mean) / np.clip(std, a_min=self.eps, a_max=None)
 
 
@@ -554,10 +562,32 @@ class Normalize:
         assert max_value > min_value
         self.min_value = min_value
         self.value_range = max_value - min_value
-
+        print(f"~~~~~~~~~~~~min_value: {self.min_value}, max_value: {max_value}-{self.value_range}")
     def __call__(self, m):
         norm_0_1 = (m - self.min_value) / self.value_range
+
+        # aa = np.clip(2 * norm_0_1 - 1, -1, 1)
+        # print(f"normalize:~~~~~~~~~~~~~~~~{np.max(aa)}---{np.min(aa)}")
         return np.clip(2 * norm_0_1 - 1, -1, 1)
+    
+
+class THNormalize:
+    """
+    Apply simple min-max scaling to a given input tensor, i.e. shrinks the range of the data in a fixed range of [-1, 1].
+    """
+
+    def __init__(self, min_value, max_value, **kwargs):
+        assert max_value > min_value
+        self.min_value = min_value
+        self.value_range = max_value - min_value
+        print(f"~~~~~~~~~~~~min_value: {self.min_value}, max_value: {max_value}-{self.value_range}")
+    def __call__(self, m):
+        norm_0_1 = (m - self.min_value) / self.value_range
+        # return np.clip(2 * norm_0_1 - 1, -1, 1)
+
+        # aa = norm_0_1 * 255
+        # print(f"THnormalize:~~~~~~~~~~~~~~~~{np.max(aa)}---{np.min(aa)}")
+        return norm_0_1 * 255
 
 
 class AdditiveGaussianNoise:

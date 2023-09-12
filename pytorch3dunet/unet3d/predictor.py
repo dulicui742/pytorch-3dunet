@@ -108,6 +108,7 @@ class THStandardPredictor(_AbstractPredictor):
         # Run predictions on the entire input dataset
         with torch.no_grad():
             for indices in tqdm(slices):
+                # import pdb; pdb.set_trace()
                 input = raw_transform(dicom_array[indices])
                 input = input.unsqueeze(dim=0) ## Add batch size dim
                 # send batch to gpu
@@ -132,6 +133,7 @@ class THStandardPredictor(_AbstractPredictor):
                 # convert to numpy array
                 prediction = prediction.cpu().numpy()
                 # for each batch sample
+                # import pdb; pdb.set_trace()
                 for pred, index in zip(prediction, [indices]):
                     # save patch index: (C,D,H,W)
                     if prediction_channel is None:
@@ -286,7 +288,8 @@ class StandardPredictor(_AbstractPredictor):
 def _pad(m, patch_halo):
     if patch_halo is not None:
         z, y, x = patch_halo
-        return nn.functional.pad(m, (x, x, y, y, z, z), mode='reflect')
+        # return nn.functional.pad(m, (x, x, y, y, z, z), mode='reflect') # mode="replicate"
+        return nn.functional.pad(m, (x, x, y, y, z, z), mode='replicate')
     return m
 
 

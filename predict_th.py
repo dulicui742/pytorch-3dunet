@@ -1,6 +1,7 @@
 import importlib
 import os
 
+import cc3d
 import time
 import torch
 import torch.nn as nn
@@ -44,9 +45,10 @@ def get_affine_matrix(dicom_dir):
     dicom_file_list = os.listdir(dicom_dir)
     slice_num = len(dicom_file_list)
     dicom_list = [0] * slice_num
+    # import pdb; pdb.set_trace()
     for dicom_file in dicom_file_list:
         ds = pydicom.read_file(os.path.join(dicom_dir, dicom_file))
-        instance_number = ds.InstanceNumber
+        instance_number = int(ds.InstanceNumber)
         dicom_list[instance_number - 1] = ds
 
     rows = dicom_list[0].Rows
@@ -132,24 +134,37 @@ def main():
     slice_builder_config = config["loaders"]["test"]['slice_builder']
     transformer_config = config["loaders"]["test"]['transformer']
     epoch = os.path.splitext(model_path.split("/")[-1])[0]
+    
     uids = os.listdir(test_base_path)
     uids = [i for i in uids if "xls" not in i]
+    uids = [i for i in uids if "mcs" not in i]
     uids.sort(key=lambda x: int(x))
 
     time_dict = {}
-    for uid in uids[80:90]:
-        # if uid not in ["53", "91", "93","12", "35", "36", "37", "38", "39"]: #["5","7", "14", "23"]: # 
-        #     continue
-
+    for uid in uids:
         logger.info("\n====dealing with: {}======" .format(uid))
         start_infernce = time.time()
         time_dict[uid] = {}
 
         #### load data ####
         image_path = os.path.join(test_base_path, uid, "dicom")
+
+        # image_path = os.path.join(test_base_path, uid)
         res = read_dicom_vtk(image_path)
         dicom_array = res["array"]
-        dicom_array[dicom_array == -3024] = -1024
+        # dicom_array[dicom_array == -3024] = -1024
+        dicom_array[dicom_array < -1024] = -1024
+
+        # ###================= clip ====================
+        # min_value = transformer_config["raw"][0]["min_value"]
+        # max_value = transformer_config["raw"][0]["max_value"]
+        # dicom_array[dicom_array > max_value] = max_value
+        # dicom_array[dicom_array < min_value] = max_value
+        # ###================= clip ====================
+
+        # dicom_array[dicom_array > -500] = 0# -500 ## 设置肺的上限值是500
+        # dicom_array[dicom_array == -3024] = -1024
+
         dicom_vtk = res["vtk"]
         dimensions = dicom_vtk.GetDimensions()
 
@@ -175,6 +190,85 @@ def main():
         
         end_inference = time.time()
 
+        """
+        ##================connected-components-3d=============
+        # # import pdb; pdb.set_trace()
+        # prediction_map_copy = prediction_map.copy()
+        # cc = cc3d.connected_components(prediction_map_copy, connectivity=26) 
+        # cc_sum = [(i, cc[cc == i].shape[0]) for i in range(1, cc.max() + 1)]
+        # cc_sum.sort(key=lambda x: x[1], reverse=True)
+        # print(f"====point num: {cc_sum}")
+        # if len(cc_sum) > 5:
+        #     for i, num in cc_sum[5:]:
+        #         prediction_map[cc == i] = 0 ## remove
+
+
+        prediction_map_copy = prediction_map.copy()
+        labels_out, N = cc3d.largest_k(
+            prediction_map_copy, k=8, 
+            connectivity=26, delta=0,
+            return_N=True,
+        )
+        print(f"connect num: {N}")
+
+        
+        if N > 5:
+            stats = cc3d.statistics(labels_out)
+            voxel_counts = stats['voxel_counts']
+            print(voxel_counts)
+            bboxes = stats["bounding_boxes"]
+            
+            cnt = 0
+            res_new = np.zeros(prediction_map.shape)
+
+            remain = {}
+            for idx in (range(1, len(bboxes))):                 
+                ### voxel num
+                if voxel_counts[idx] < 500:
+                    print(f"remove: idx: {idx}, voxel_counts: {voxel_counts[idx]}")
+                    continue
+
+                ### thickness [4, 15]
+                ## bboxes[idx]是整个(slice(0, 273, None), slice(0, 512, None), slice(0, 512, None))
+                thickness = bboxes[idx][0].stop - bboxes[idx][0].start
+                height = bboxes[idx][1].stop - bboxes[idx][1].start
+                width = bboxes[idx][2].stop - bboxes[idx][2].start
+                wh_ratio = max(height, width) / min(height, width)
+                if thickness > 16 or thickness < 4:
+                    print(f"\nRemove: idx: {idx}, thick: {thickness}, num: {voxel_counts[idx]}")
+                    continue
+
+                ## ratio for w,h
+                if wh_ratio > 1.2:
+                    print(f"\nRemove: idx: {idx}, thick: {thickness}, wh: {width}-{height}-{wh_ratio}, num: {stats['voxel_counts'][idx]}")
+                    continue
+                
+
+                ## Remain foreground
+                cnt += 1
+                print(f"Remain_{cnt}: idx: {idx},thick: {thickness}, wh: {width}-{height}-{wh_ratio}, num: {stats['voxel_counts'][idx]}")
+                remain[idx] = thickness
+            #     res_new[labels_out == idx] = prediction_map[labels_out == idx]
+            # prediction_map = res_new
+        
+            if len(remain) > 5:
+                thick_avg = sum(list(remain.values())) / len(remain)
+                for k, v in remain.items():
+                    remain[k] = abs(v - thick_avg)
+                remain = sorted(remain.items(), key=lambda x:x[1], reverse=False)
+
+                # import pdb; pdb.set_trace()
+                print(f"remain: {remain}")
+                for k, _ in remain[:5]:
+                    res_new[labels_out == k] = prediction_map[labels_out == k]
+                prediction_map = res_new
+                
+
+
+        cc3d_time = time.time()
+        print(f"======cc3d time: {cc3d_time - end_inference}")
+        ##================connected-components-3d=============
+        """
         #### 3D reconstruction ####
         prediction_map = prediction_map.astype(np.uint8)[:,::-1,:]
         vtk_data = numpy_support.numpy_to_vtk(
@@ -263,10 +357,12 @@ def main():
         end_time = time.time()
 
         time_dict[uid]["Slice Num"] = dimensions[2]
+        time_dict[uid]["Patch Num"] = len(raw_slices)
         time_dict[uid]["Load Model"] = round(load_model_time - start_time, 3)
-        time_dict[uid]["VTK"] = round(tmp - start_infernce, 3)
-        time_dict[uid]["Slice Builder"] = round(slice_time - tmp, 3)
+        # time_dict[uid]["VTK"] = round(tmp - start_infernce, 3)
+        time_dict[uid]["VTK"] = round(slice_time - start_infernce, 3)
         time_dict[uid]["Inference"] = round(end_inference - slice_time, 3)
+        # time_dict[uid]["Cc3d"] = round(cc3d_time - end_inference, 3)
         time_dict[uid]["3D Recon"] = round(end_time - end_inference, 3)
         time_dict[uid]["Total"] = round(end_time - start_infernce + (load_model_time - start_time), 3)
 

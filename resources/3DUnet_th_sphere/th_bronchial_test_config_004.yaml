@@ -1,10 +1,7 @@
 # Download test data from: https://osf.io/8jz7e/
-model_path: ./output/pth/Sphere/0804_162025/epoch_21_niters_93000_bes_0.5182.pth  #./output/pth/epoch_26_niters_114000_bes_0.5182.pth
-# model_path: ./output/pth/Sphere/0818_164000/epoch_29_niters_132000_bes_0.1235.pth
-# model_path: ./output/pth/Sphere/0822_140000/epoch_44_niters_201000_bes_0.5182.pth  #epoch_41_niters_183000_bes_0.5182.pth  #epoch_28_niters_120000_bes_0.5182.pth #
-# model_path: /data/dulicui/project/git/pytorch-3dunet/output/pth/Sphere/0804_162025/epoch_21_niters_93000_bes_0.5182.pth 
-#""  #"./output/pth/epoch_24_niters_105000_bes_0.5182.pth"
-#  #./output/pth/best_checkpoint.pytorch_epoch_8_niters_200_bes_0.064
+model_path: ./output/pth/Bronchial/0905_160000/epoch_32_niters_222000_bes_0.1297.pth  #epoch_27_niters_186000_bes_0.1297.pth 
+#epoch_26_niters_177000_bes_0.1294.pth #epoch_22_niters_150000_bes_0.1294.pth 
+
 model:
   name: UNet3D
   # number of input channels to the model
@@ -22,8 +19,8 @@ model:
 predictor:
   name: 'THStandardPredictor'
 
-  labels: ["sphere"]
-  sigmoid_threshold: 0.6
+  labels: ["Bronchial"]
+  sigmoid_threshold: 0.6 #0.55 #
 
 loaders:
   # save predictions to output_dir
@@ -31,9 +28,9 @@ loaders:
   # output_dir: ./output/res/h5/0804/debug
   # output_dir: ./output/res/stl/Sphere/0804_162025/oneliner/epoch_21_niters_93000_vtk_96_160
   # output_dir: ./output/res/stl/Sphere/0818_164000/
-  # output_dir: ./output/res/stl/Sphere/0804_162025/oneliner/32_288_24_272_replicate #32_288_24_272_replicate #32_256_24_240 #
-  # output_dir: ./output/res/stl/Sphere/0804_162025/oneliner/16_288_8_272_nopadding #16_288_8_272_replicate #64_128_56_112_replicate #32_256_24_240 #32_512_24_496_nopadding #32_512_24_496_replicate  #
-  output_dir: ./output/res/stl/Sphere/0804_162025/oneliner/16_288_8_272_replicate_cc3d #64_128_56_112_replicate_cc3d
+
+  output_dir: ./output/res/stl/Bronchial/0905_160000/32_288_16_256 #96_160_64_128
+
   # output_dir: ./output/res/stl/Sphere/0822_140000/
   # batch dimension; if number of GPUs is N > 1, then a batch_size of N * batch_size will automatically be taken for DataParallel
   batch_size: 1
@@ -44,15 +41,17 @@ loaders:
     # file_paths: ["./data/test/"]
     # file_paths: ["/data/dulicui/project/data/data03_h5/test_vtk"]
     # file_paths: ["/data/dulicui/project/data/data03_h5/test_debug/"]
+    
     # test_base_path: "/mnt/Data/data_sphere_test/"
-    test_base_path: /mnt/Data/data03/627-724/
+    test_base_path: /media/ubuntu/Elements SE/data_sphere_test/
+    # test_base_path: /media/ubuntu/Elements SE/data00/dst/dicom/
 
     slice_builder:
       name: THSliceBuilder
       # patch_shape: [32, 512, 512]
       # stride_shape: [24, 496, 496]
       # patch_shape: [128, 128, 128]
-      # stride_shape: [112, 112, 112]
+      # stride_shape: [96, 112, 112]
       # patch_shape: [32, 256, 256]
       # stride_shape: [24, 240, 240]
 
@@ -62,8 +61,16 @@ loaders:
       # patch_shape: [32, 224, 224]
       # stride_shape: [24, 208, 208]
 
+      # 目前再用
       # patch_shape: [96, 160, 160]
-      # stride_shape: [80, 144, 144]
+      # # stride_shape: [80, 144, 144]
+
+      # stride_shape: [64, 128, 128]
+      # stride_shape: [64, 96, 96]
+      # stride_shape: [32, 64, 64]
+      # stride_shape: [64, 64, 64]
+      # stride_shape: [32, 32, 32]
+
       # patch_shape: [4, 512, 512]
       # stride_shape: [4, 496, 496]
 
@@ -73,18 +80,21 @@ loaders:
       # stride_shape: [8, 328, 328]
 
       patch_shape: [32, 288, 288]
-      stride_shape: [24, 272, 272]
+      # stride_shape: [24, 272, 272]
+      stride_shape: [16, 256, 256]
 
+      # patch_shape: [128, 160, 160]
+      # stride_shape: [112, 144, 144]
 
-      # patch_shape: [64, 128, 128]
-      # stride_shape: [56, 112, 112]
-
-      # patch_shape: [16, 288, 288]
-      # stride_shape: [8, 272, 272]
+      # patch_shape: [256, 64, 64]
+      # stride_shape: [240, 56, 56]
 
     transformer:
       raw:
-        - name: Standardize
+        # - name: Standardize
+        - name: Normalize
+          min_value: -1024
+          max_value: -690  ## wl=-850,ww=310
         - name: ToTensor
           expand_dims: true
 

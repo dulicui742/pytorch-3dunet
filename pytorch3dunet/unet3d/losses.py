@@ -36,6 +36,22 @@ def compute_per_channel_dice(input, target, epsilon=1e-6, weight=None):
     return 2 * (intersect / denominator.clamp(min=epsilon))
 
 
+class GeneralUnionLossLib(nn.Module):
+    def __init__(self, smooth=1.0, alpha = 0.2, sigma1=0.0001, sigma2=0.0001):
+        self.smooth = smooth
+        self.alpha = alpha
+        self.beta = 1 - self.alpha
+        self.sigma1 = sigma1
+        self.sigma2 = sigma2
+
+    def forward(self, input, target, weight):
+        weight_i = target * self.sigma1 + (1 - target) * self.sigma2
+        intersection = (weight * ((input + weight_i) ** 0.7) * target).sum()
+        intersection2 = (weight * (self.alpha * input + self.beta * target)).sum()
+        return 1 - (intersection + self.smooth) / (intersection2 + self.smooth)
+
+
+
 class _MaskingLossWrapper(nn.Module):
     """
     Loss wrapper which prevents the gradient of the loss to be computed where target is equal to `ignore_index`.
@@ -343,5 +359,7 @@ def _create_loss(name, loss_config, weight, ignore_index, pos_weight):
         return WeightedSmoothL1Loss(threshold=loss_config['threshold'],
                                     initial_weight=loss_config['initial_weight'],
                                     apply_below_threshold=loss_config.get('apply_below_threshold', True))
+    elif name == "GeneralUnionLossLib":
+        return GeneralUnionLossLib()
     else:
         raise RuntimeError(f"Unsupported loss function: '{name}'")
